@@ -1,71 +1,104 @@
 package com.eco.data.hadoop;
-
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
-
 import java.io.*;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
-/**
- * @auther lucifer
- * @mail wangxiyue.xy@163.com
- * @date 2021-02-24 13:24
- * @projectName hadoop-util
- * @description:
- */
 public class HBaseUtil {
 
     private static Configuration configuration;
     private static Connection conn;
     private static Admin admin;
 
-    private  static String TABLE_NAME = "surf_hbase_mul";
+    private static String TABLE_NAME = "surf";
+    private static String FILENAME  = "D:/资料/mut201806.csv";
+    private static String HEADFILE  = "D:/资料/head.txt";
+    private static String IP = "10.198.192.76";
 
     public static void main(String[] args) {
+        if(args !=null ){
+            if(args.length == 4){
+                FILENAME = args[0];
+                HEADFILE = args[1];
+                TABLE_NAME = args[2];
+                IP = args[3];
+            } else if(args.length != 0){
+
+                System.out.println("java -jar FILENAME HEADFILE TABLE_NAME IP");
+                return;
+            }
+        }
+        System.out.println("FILENAME ==> " + FILENAME);
+        System.out.println("HEADFILE ==> " + HEADFILE);
+        System.out.println("TABLE_NAME ==> " + TABLE_NAME);
+        System.out.println("IP ==> " + IP);
+
         init();
         System.out.println("init ok");
         String[] col = new String[]{};
-//        loadfile();
+        loadfile();
 //        deleteTable(TABLE_NAME);
-        Date st = new Date();
-        String a  = getData(TABLE_NAME,"10","SURF_CHN_BASIC_INFO_ID","SURF_CHN_BASIC_INFO_ID");
-        Date ed = new Date();
-        System.out.println("val ===>" + a + " use time ===>" +(ed.getTime() - st.getTime()));
+//        Date st = new Date();
+//        String a  = getData(TABLE_NAME,"10","ID",null);
+//        ResultScanner results = scanData(TABLE_NAME, "56778", null);
+//        Date ed = new Date();
+//        for (Result result : results) {
+//            for (Cell c : result.listCells()) {
+//                System.out.println(new String(c.getFamily()) + "==>" + new String(c.getQualifier()));
+//            }
+//            System.out.println("################");
+//        }
+//        System.out.println("use time ===>" +(ed.getTime() - st.getTime()));
         close();
     }
 
     public static void loadfile(){
         try {
             String tableName = TABLE_NAME;
-            File f = new File("d:/surf_chn_mul_full_min_20210112_202102221630.csv");
+            File f = new File(FILENAME);
             BufferedReader br = null;
             br = new BufferedReader(new FileReader(f));
-            String head = br.readLine();
-            String[] headStr = head.split(",");
-            String[] heads = new String[headStr.length];
-            for (int i = 0; i < headStr.length; i++) {
-                heads[i]=headStr[i].replaceAll("\"","");
-            }
+            String[] heads = loadhead(HEADFILE);
 
             String row  = br.readLine();
             String[] rows ;
             System.out.println("create table");
             createTable(TABLE_NAME,heads);
-
             Date st = new Date();
+            Table table = conn.getTable(TableName.valueOf(tableName));
+
+            List<Put> puts  =  new ArrayList<Put>();
+            long sum = 0;
             while(row !=null){
                 rows = row.split(",");
                 if(rows.length==heads.length){
+                    String rowKey = rows[1].replaceAll("\"","") + "_" + rows[5].replaceAll("\"","");
+                    Put put = new Put(rowKey.getBytes());
                     for (int i = 0; i < rows.length; i++) {
-                        insertData(tableName,rows[0].replaceAll("\"",""),heads[i],heads[i],rows[i].replaceAll("\"",""));
+                        put.addColumn(heads[i].getBytes(),heads[i].getBytes(),rows[i].replaceAll("\"","").getBytes());
+//                        insertData(tableName,rows[1].replaceAll("\"",""),heads[i],rows[i],rows[i].replaceAll("\"",""));
+                    }
+                    puts.add(put);
+
+
+                    if(puts.size()>10000){//1w
+                        Date subStart = new Date();
+                        table.put(puts);
+                        Date subEnd = new Date();
+                        sum = sum + 1 ;
+                        System.out.println("sum ==> "+ sum +"万条记录  1w  ==> " + (subEnd.getTime()-subStart.getTime()));
+                        puts = new ArrayList<Put>();
+                        table.close();
+
+                        table = conn.getTable(TableName.valueOf(tableName));
                     }
                 }
                 row  =br.readLine();
             }
+
             Date ed = new Date();
             Long t = ed.getTime() - st.getTime();
             System.out.println("use time = " +t);
@@ -78,11 +111,30 @@ public class HBaseUtil {
         }
     }
 
+    public static String[] loadhead(String headfile){
+        try {
+            File f = new File(headfile);
+            BufferedReader br = null;
+            br = new BufferedReader(new FileReader(f));
+            String head = br.readLine();
+            String[] headStr = head.split(",");
+            String[] heads = new String[headStr.length];
+            for (int i = 0; i < headStr.length; i++) {
+                heads[i]=headStr[i].replaceAll("\"","");
+            }
+            return heads;
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+
+    }
+
     public static void init(){
         configuration = HBaseConfiguration.create();
-        configuration.set("hbase.zookeeper.quorum", "10.198.192.70");
-//        configuration.set("hbase.rootdir","hdfs://10.198.192.70:9000/hbase");
-
+        configuration.set("hbase.zookeeper.quorum", IP);
 
         try {
             conn = ConnectionFactory.createConnection(configuration);
@@ -122,6 +174,23 @@ public class HBaseUtil {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public static ResultScanner scanData(String tableName,String rowKey,String colFamily){
+        try {
+            Table table  = conn.getTable(TableName.valueOf(tableName));
+            Scan scan = new Scan(rowKey.getBytes());
+            if(colFamily!=null){
+                scan.addFamily(colFamily.getBytes());
+            }
+
+
+            ResultScanner resultScanner = table.getScanner(scan);
+            return resultScanner;
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
     public static String getData(String tableName,String rowKey,String colFamily,String col){

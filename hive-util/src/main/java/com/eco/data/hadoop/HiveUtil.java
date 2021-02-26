@@ -1,10 +1,8 @@
 package com.eco.data.hadoop;
 
-
 import java.io.*;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.ResultSet;
 import java.sql.Statement;
 
 /**
@@ -25,9 +23,9 @@ public class HiveUtil {
 
     public static void main(String[] args) {
         try {
-            init();
-//            loadFile();
-
+            for (String arg : args) {
+                System.out.println(arg);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
