@@ -2,6 +2,8 @@ package com.eco.data.hadoop;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.util.Bytes;
+
 import java.io.*;
 import java.util.ArrayList;
 import java.util.Date;
@@ -15,8 +17,11 @@ public class HBaseUtil {
 
     private static String TABLE_NAME = "surf";
     private static String FILENAME  = "D:/资料/mut201806.csv";
+    private static String TABLEFAMILAY  = "D:/资料/table.txt";
     private static String HEADFILE  = "D:/资料/head.txt";
     private static String IP = "10.198.192.76";
+
+    private static int unit = 10000;
 
     public static void main(String[] args) {
         if(args !=null ){
@@ -62,38 +67,36 @@ public class HBaseUtil {
             BufferedReader br = null;
             br = new BufferedReader(new FileReader(f));
             String[] heads = loadhead(HEADFILE);
+            String[] familay = loadhead(TABLEFAMILAY);
 
             String row  = br.readLine();
             String[] rows ;
             System.out.println("create table");
-            createTable(TABLE_NAME,heads);
+
+            createTable(TABLE_NAME,familay);
             Date st = new Date();
             Table table = conn.getTable(TableName.valueOf(tableName));
-
-            List<Put> puts  =  new ArrayList<Put>();
+            List<Put> puts = new ArrayList<>();
             long sum = 0;
             while(row !=null){
                 rows = row.split(",");
                 if(rows.length==heads.length){
                     String rowKey = rows[1].replaceAll("\"","") + "_" + rows[5].replaceAll("\"","");
-                    Put put = new Put(rowKey.getBytes());
-                    for (int i = 0; i < rows.length; i++) {
-                        put.addColumn(heads[i].getBytes(),heads[i].getBytes(),rows[i].replaceAll("\"","").getBytes());
-//                        insertData(tableName,rows[1].replaceAll("\"",""),heads[i],rows[i],rows[i].replaceAll("\"",""));
+                    Put put = new Put(Bytes.toBytes(rowKey));
+                    put.setDurability(Durability.SKIP_WAL);
+
+//                    put.addColumn(familay[0].getBytes(),familay[0].getBytes(),row.getBytes());
+                    for (int i = 0; i < 20; i++) {
+                        put.addColumn(familay[0].getBytes(),heads[i].getBytes(),rows[i].replaceAll("\"","").getBytes());
                     }
                     puts.add(put);
-
-
-                    if(puts.size()>10000){//1w
+                    if(puts.size()>unit){//10w
                         Date subStart = new Date();
                         table.put(puts);
                         Date subEnd = new Date();
-                        sum = sum + 1 ;
-                        System.out.println("sum ==> "+ sum +"万条记录  1w  ==> " + (subEnd.getTime()-subStart.getTime()));
-                        puts = new ArrayList<Put>();
-                        table.close();
-
-                        table = conn.getTable(TableName.valueOf(tableName));
+                        sum = sum + unit ;
+                        System.out.println("sum ==> "+ sum +"条记录 "+ unit +" w  ==> " + (subEnd.getTime()-subStart.getTime()));
+                        puts =new ArrayList<>();
                     }
                 }
                 row  =br.readLine();
@@ -151,14 +154,14 @@ public class HBaseUtil {
         try {
             if(admin.tableExists(table)){
                 System.out.println(tableName + " 存在");
-            }else{
-                HTableDescriptor hTableDescriptor  = new HTableDescriptor(table);
-                for (String colFamily : col) {
-                    HColumnDescriptor hColumnDescriptor = new HColumnDescriptor(colFamily);
-                    hTableDescriptor.addFamily(hColumnDescriptor);
-                }
-                admin.createTable(hTableDescriptor);
+                deleteTable(TABLE_NAME);
             }
+            HTableDescriptor hTableDescriptor  = new HTableDescriptor(table);
+            for (String colFamily : col) {
+                HColumnDescriptor hColumnDescriptor = new HColumnDescriptor(colFamily);
+                hTableDescriptor.addFamily(hColumnDescriptor);
+            }
+            admin.createTable(hTableDescriptor);
         } catch (IOException e) {
             e.printStackTrace();
         }
